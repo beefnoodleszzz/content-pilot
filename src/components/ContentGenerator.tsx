@@ -60,6 +60,7 @@ export function ContentGenerator() {
   const [copied, setCopied] = useState<string | null>(null);
   const [deepMode, setDeepMode] = useState(false);
   const [progress, setProgress] = useState("");
+  const [streamingText, setStreamingText] = useState("");
 
   const handleSubmit = async () => {
     if (!form.product || !form.industry) {
@@ -69,6 +70,7 @@ export function ContentGenerator() {
     setLoading(true);
     setError("");
     setResult(null);
+    setStreamingText("");
 
     try {
       const apiEndpoint = deepMode ? "/api/scrape-generate" : "/api/generate";
@@ -79,13 +81,54 @@ export function ContentGenerator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || "生成失败，请稍后重试");
       }
-      const data = await res.json();
-      setResult(data);
-      setProgress("");
+
+      // 流式模式
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("text/event-stream")) {
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        if (!reader) throw new Error("无法读取流");
+
+        let buffer = "";
+        setProgress("AI 正在生成中...");
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === "delta") {
+                  setStreamingText((prev) => prev + data.content);
+                } else if (data.type === "complete") {
+                  setResult(data.result);
+                  setProgress("");
+                } else if (data.type === "error") {
+                  throw new Error(data.message);
+                }
+              } catch (e: any) {
+                if (e.message && !e.message.includes("JSON")) throw e;
+              }
+            }
+          }
+        }
+      } else {
+        // 非流式模式（深度分析）
+        const data = await res.json();
+        setResult(data);
+        setProgress("");
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "生成失败");
     } finally {
