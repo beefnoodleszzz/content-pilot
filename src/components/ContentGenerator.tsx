@@ -132,7 +132,7 @@ export function ContentGenerator() {
                 value={form.industry}
                 onChange={(e) => setForm({ ...form, industry: e.target.value })}
               >
-                <option value="">选择行业</option>
+                <option value="">选择行业z</option>
                 {INDUSTRIES.map((ind) => (
                   <option key={ind} value={ind}>{ind}</option>
                 ))}
